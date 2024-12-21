@@ -1025,11 +1025,18 @@ def save_to_gguf(
     pass
 
     # Determine whether the system already has llama.cpp installed and the scripts are executable
-    quantize_location = get_executable(["llama-quantize", "quantize"])
-    convert_location  = get_executable(["convert-hf-to-gguf.py", "convert_hf_to_gguf.py"])
-    
+    # TODO fix these!!
+
+    llama_quantize_executable = get_executable(["llama-quantize"])
+    if llama_quantize_executable != "/home/dnck/dnck/heygirl/llama.cpp/build/bin/llama-quantize":
+        llama_quantize_executable = "/home/dnck/dnck/heygirl/llama.cpp/build/bin/llama-quantize"
+
+    convert_hf_to_gguf_py  = get_executable(["convert_hf_to_gguf.py"])
+    if convert_hf_to_gguf_py != "/home/dnck/dnck/heygirl/llama.cpp/convert_hf_to_gguf.py":
+        convert_hf_to_gguf_py = "/home/dnck/dnck/heygirl/llama.cpp/convert_hf_to_gguf.py"
+
     error = 0
-    if quantize_location is not None and convert_location is not None:
+    if llama_quantize_executable is not None and convert_hf_to_gguf_py is not None:
         print("Unsloth: llama.cpp found in the system. We shall skip installation.")
     else:
         print("Unsloth: Installing llama.cpp. This might take 3 minutes...")
@@ -1060,11 +1067,11 @@ def save_to_gguf(
         # Careful llama.cpp/quantize changed to llama.cpp/llama-quantize
         # and llama.cpp/main changed to llama.cpp/llama-cli
         # See https://github.com/ggerganov/llama.cpp/pull/7809
-        quantize_location = None
+        llama_quantize_executable = None
         if os.path.exists("llama.cpp/quantize"):
-            quantize_location = "llama.cpp/quantize"
+            llama_quantize_executable = "llama.cpp/quantize"
         elif os.path.exists("llama.cpp/llama-quantize"):
-            quantize_location = "llama.cpp/llama-quantize"
+            llama_quantize_executable = "llama.cpp/llama-quantize"
         else:
             raise RuntimeError(
                 "Unsloth: The file 'llama.cpp/llama-quantize' or 'llama.cpp/quantize' does not exist.\n"\
@@ -1074,11 +1081,11 @@ def save_to_gguf(
 
         # See https://github.com/unslothai/unsloth/pull/730
         # Filenames changed again!
-        convert_location = None
+        convert_hf_to_gguf_py = None
         if os.path.exists("llama.cpp/convert-hf-to-gguf.py"):
-            convert_location = "llama.cpp/convert-hf-to-gguf.py"
+            convert_hf_to_gguf_py = "llama.cpp/convert-hf-to-gguf.py"
         elif os.path.exists("llama.cpp/convert_hf_to_gguf.py"):
-            convert_location = "llama.cpp/convert_hf_to_gguf.py"
+            convert_hf_to_gguf_py = "llama.cpp/convert_hf_to_gguf.py"
         else:
             raise RuntimeError(
                 "Unsloth: The file 'llama.cpp/convert-hf-to-gguf.py' or 'llama.cpp/convert_hf_to_gguf.py' does not exist.\n"\
@@ -1162,18 +1169,8 @@ def save_to_gguf(
     else:
         vocab_type = "bpe"
     pass
-
-    # convert.py is deprecated!
-    use_fast_convert = False
-    if use_fast_convert:
-        command = f"python llama.cpp/convert.py {model_directory} "\
-            f"--outfile {final_location} --vocab-type {vocab_type} "\
-            f"--outtype {first_conversion} --concurrency {n_cpus} --pad-vocab"
-    else:
-        command = f"python {convert_location} {model_directory} "\
-            f"--outfile {final_location} "\
-            f"--outtype {first_conversion}"
-    pass
+ 
+    command = f"{convert_hf_to_gguf_py} {model_directory} --outfile {final_location} --outtype {first_conversion}"
 
     try_execute([command,], force_complete = True)
 
@@ -1214,7 +1211,7 @@ def save_to_gguf(
             print(f"Unsloth: [2] Converting GGUF 16bit into {quant_method}. This might take 20 minutes...")
             final_location = str((Path(model_directory) / f"unsloth.{quant_method.upper()}.gguf").absolute())
 
-            command = f"./{quantize_location} {full_precision_location} "\
+            command = f"{llama_quantize_executable} {full_precision_location} "\
                 f"{final_location} {quant_method} {n_cpus}"
             
             try_execute([command,], force_complete = True)
