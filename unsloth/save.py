@@ -100,8 +100,7 @@ ALLOWED_QUANTS = \
 def print_quantization_methods():
     for key, value in ALLOWED_QUANTS.items():
         print(f'"{key}"  ==> {value}')
-    pass
-pass
+
 
 
 def check_if_sentencepiece_model(model, temporary_location = "_unsloth_sentencepiece_temp"):
@@ -221,18 +220,22 @@ def unsloth_save_model(
     temporary_location   : str = "_unsloth_temporary_saved_buffers",
     maximum_memory_usage : float = 0.9,
 ):
-    if token is None: token = get_token()
+    if token is None: 
+        token = get_token()
 
-    if commit_message is None: commit_message = ""
+    if commit_message is None: 
+        commit_message = ""
+
     if "Unsloth" not in commit_message:
         commit_message += " (Trained with Unsloth)"
+
     commit_message = commit_message.lstrip()
 
     if commit_description is None:
         commit_description = "Upload model trained with Unsloth 2x faster"
     elif "Unsloth 2x faster" not in commit_description:
         commit_description += " (Trained with Unsloth 2x faster)"
-    pass
+
 
     if save_method == "merged_4bit":
         raise RuntimeError(
@@ -379,6 +382,7 @@ def unsloth_save_model(
 
     # Check if PEFT Model or not - if yes, 3 levels. If not 2 levels.
     from peft import PeftModelForCausalLM
+
     if isinstance(model, PeftModelForCausalLM):
         internal_model = model.model
     else:
@@ -399,7 +403,7 @@ def unsloth_save_model(
             ("use_temp_dir", "create_pr", "revision", "tags", "commit_description",)
         for deletion in what_to_delete:
             del save_pretrained_settings[deletion]
-        pass
+
         if hasattr(model, "add_model_tags"):
             model.add_model_tags(["unsloth",])
 
@@ -410,7 +414,6 @@ def unsloth_save_model(
                 "finetuned", "trl", file_location = None,
                 old_username = None, private = private,
             )
-        pass
 
         if tokenizer is not None:
             print("Unsloth: Saving tokenizer...", end = "")
@@ -444,12 +447,10 @@ def unsloth_save_model(
 
         print(" Done.")
         return save_directory, None
-    pass
 
     # If push_to_hub, we must remove the .../ part of a repo
     username = None
     if push_to_hub and "/" in save_directory:
-
         # +1 solves absolute path issues
         new_save_directory = save_directory
         username = new_save_directory[:new_save_directory.find("/")]
@@ -469,7 +470,7 @@ def unsloth_save_model(
         save_pretrained_settings["save_directory"] = new_save_directory
         tokenizer_save_settings ["save_directory"] = new_save_directory
         save_directory = new_save_directory
-    pass
+
 
     print("Unsloth: Merging 4bit and LoRA weights to 16bit...")
 
@@ -582,15 +583,13 @@ def unsloth_save_model(
                 torch.save(W, filename, pickle_module = pickle, pickle_protocol = pickle.HIGHEST_PROTOCOL,)
                 # weights_only = True weirdly fails?
                 state_dict[name] = torch.load(filename, map_location = "cpu", mmap = True, weights_only = False)
-        pass
+
         for item in LLAMA_LAYERNORMS:
             try:
                 # Skip for Gemma 2
                 state_dict[f"model.layers.{j}.{item}.weight"] = eval(f"layer.{item}.weight.data")
             except:
                 continue
-        pass
-    pass
 
     state_dict["model.norm.weight"] = internal_model.model.norm.weight.data
     # Check for modules_to_save float32 dtype
@@ -598,15 +597,14 @@ def unsloth_save_model(
     # Check for tied weights
     if internal_model.model.embed_tokens.weight.data_ptr() != internal_model.lm_head.weight.data_ptr():
         state_dict["lm_head.weight"] = internal_model.lm_head.weight.data.to(torch_dtype)
-    pass
+
 
     # All tensors MUST be type torch.Tensor and not torch.nn.parameter.Parameter
     for key, value in state_dict.items():
         if hasattr(value, "data"): state_dict[key] = value = value.data
         if type(value) is not torch.Tensor:
             logger.warning_once(f"Unsloth: {key} is not a Tensor but a {type(value)}.")
-        pass
-    pass
+
 
     # Edit save_pretrained_settings
     # [TODO] _create_repo has errors due to **kwargs getting accepted
@@ -618,7 +616,7 @@ def unsloth_save_model(
         ("use_temp_dir", "create_pr", "revision", "tags", "commit_description",)
     for deletion in what_to_delete:
         del save_pretrained_settings[deletion]
-    pass
+
     if hasattr(model, "add_model_tags"):
         model.add_model_tags(["unsloth",])
 
@@ -629,7 +627,6 @@ def unsloth_save_model(
             "finetuned", "trl", file_location = None,
             old_username = username, private = private,
         )
-    pass
 
     # First check if we're pushing to an organization!
     save_directory = save_pretrained_settings["save_directory"]
@@ -642,7 +639,6 @@ def unsloth_save_model(
             actual_username = whoami(token = token)["name"]
         else:
             actual_username = username
-    pass
 
     # Check if pushing to an organization
     if save_pretrained_settings["push_to_hub"] and (username != actual_username):
@@ -650,25 +646,19 @@ def unsloth_save_model(
         # We upload everything at the end!
         tokenizer_save_settings["push_to_hub"] = False
         tokenizer_save_settings["save_directory"] = new_save_directory
-    pass
 
     # Save tokenizer
     if tokenizer is not None:
         print("Unsloth: Saving tokenizer...", end = "")
-
         # Set padding side to left for inference
         old_padding_side = tokenizer.padding_side
         tokenizer.padding_side = "left"
-
         tokenizer.save_pretrained(**tokenizer_save_settings)
-
         # Revert back padding side
         tokenizer.padding_side = old_padding_side
-            
-        print(" Done.")
+        print(" Done saving tokenizer")
     else:
         print()
-    pass
 
     # Since merged, edit quantization_config
     old_config = model.config
@@ -712,7 +702,6 @@ def unsloth_save_model(
         )
     else:
         internal_model.save_pretrained(**save_pretrained_settings)
-    pass
 
     # Revert config back
     original_model = model
@@ -724,7 +713,6 @@ def unsloth_save_model(
 
     if push_to_hub and hasattr(model, "config"):
         print(f"Saved merged model to https://huggingface.co/{username}/{save_directory.lstrip('/').split('/')[-1]}")
-    pass
 
     save_pretrained_settings["state_dict"] = None
 
@@ -733,8 +721,8 @@ def unsloth_save_model(
         if j % 10 == 0:
             torch.cuda.empty_cache()
             gc.collect()
-        pass
-    pass
+
+
     state_dict = None
     del state_dict
     torch.cuda.empty_cache()
@@ -748,14 +736,14 @@ def unsloth_save_model(
         torch.cuda.empty_cache()
         gc.collect()
     return save_directory, username
-pass
+
 
 
 def install_llama_cpp_clone_non_blocking():
     full_command = ["git", "clone", "--recursive", "https://github.com/ggerganov/llama.cpp"]
     run_installer = subprocess.Popen(full_command, stdout = subprocess.DEVNULL, stderr = subprocess.STDOUT)
     return run_installer
-pass
+
 
 
 def install_llama_cpp_make_non_blocking():
@@ -792,14 +780,14 @@ def install_llama_cpp_make_non_blocking():
     # run_installer = subprocess.Popen(full_command, env = env, stdout = subprocess.DEVNULL, stderr = subprocess.STDOUT)
     run_installer = subprocess.Popen(full_command, stdout = subprocess.DEVNULL, stderr = subprocess.STDOUT)
     return run_installer, IS_CMAKE
-pass
+
 
 
 def install_python_non_blocking(packages = []):
     full_command = ["pip", "install"] + packages
     run_installer = subprocess.Popen(full_command, stdout = subprocess.DEVNULL, stderr = subprocess.STDOUT)
     return run_installer
-pass
+
 
 
 def try_execute(commands, force_complete = False):
@@ -822,7 +810,7 @@ def try_execute(commands, force_complete = False):
         pass
     pass
     return None
-pass
+
 
 
 def install_llama_cpp_old(version = -10):
@@ -882,7 +870,7 @@ def install_llama_cpp_old(version = -10):
             "But we expect this file to exist! Maybe the llama.cpp developers changed the name?"
         )
     pass
-pass
+
 
 
 def install_llama_cpp_blocking(use_cuda = False):
@@ -914,7 +902,7 @@ def install_llama_cpp_blocking(use_cuda = False):
         ]
         try_execute(commands)
     pass
-pass
+
 
 
 def get_executable(executables):
@@ -925,11 +913,10 @@ def get_executable(executables):
         for executable in executables:
             path = os.path.join(directory, executable)
             # Check if the executable exists and is executable
-            if os.path.exists(path) and os.access(path, os.X_OK): return path
-        pass
-    pass
+            if os.path.exists(path) and os.access(path, os.X_OK): 
+                return path
+
     return None
-pass
 
 
 def save_to_gguf(
