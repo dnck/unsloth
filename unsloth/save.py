@@ -1774,7 +1774,7 @@ def unsloth_push_to_hub_gguf(
     #         python_install.wait()
     #     pass
     # else:
-    
+
     try:
         new_save_directory, old_username = unsloth_save_model(**arguments)
         makefile = None
@@ -1821,9 +1821,6 @@ def unsloth_push_to_hub_gguf(
     is_sentencepiece_model = check_if_sentencepiece_model(self)
 
     # Save to GGUF
-    model_name = ""
-    llama_quantize_executable = ""
-    convert_hf_to_gguf_py = ""
     all_file_locations, want_full_precision = save_to_gguf(
         model_name,
         model_type, 
