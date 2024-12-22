@@ -933,21 +933,27 @@ pass
 
 
 def save_to_gguf(
+    model_name: str,
     model_type           : str,
     model_dtype          : str,
     is_sentencepiece     : bool = False,
     model_directory      : str = "unsloth_finetuned_model",
     quantization_method  = "fast_quantized", # Can be a list of options! ["q4_k_m", "q8_0", "q5_k_m"]
     first_conversion     : str = None,
-    _run_installer = None, # Non blocking install of llama.cpp
+    llama_quantize_executable: str = None,
+    convert_hf_to_gguf_py: str = None
 ):
-    # logger.warning(
-    #     "NOTICE: llama.cpp GGUF conversion is currently unstable, since llama.cpp is\n"\
-    #     "undergoing some major bug fixes as at 5th of May 2024. This is not an Unsloth issue.\n"\
-    #     "Please be patient - GGUF saving should still work, but might not work as well."
-    # )
-    assert(model_dtype == "float16" or model_dtype == "bfloat16")
-    model_dtype = "f16" if model_dtype == "float16" else "bf16"
+
+    required_executables = ["llama-quantize", "convert_hf_to_gguf.py"]
+    if llama_quantize_executable is None or convert_hf_to_gguf_py is None:
+        print(f"ERROR: Please install llama.cpp and pass the path to the required executables={required_executables}")
+        return
+
+    known_model_dtypes = {"float16": "f16", "bfloat16": "bf16"}
+    if model_dtype not in known_model_dtypes.keys():
+        print(f"ERROR: Unknown model dtypes. Given {model_dtype} but only know {known_model_dtypes}")
+        return
+    model_dtype = known_model_dtypes[model_dtype]
 
     # Convert quantization_method to list
     if   isinstance(quantization_method, list):  pass
@@ -955,7 +961,6 @@ def save_to_gguf(
     elif isinstance(quantization_method, tuple): quantization_method = list(quantization_method)
     else:
         raise TypeError("Unsloth: quantization_method can only be a string or a list of strings")
-    pass
     
     # Check if bfloat16 is supported
     if model_dtype == "bf16" and not torch.cuda.is_bf16_supported():
@@ -964,18 +969,15 @@ def save_to_gguf(
             "We shall switch instead to f16."
         )
         model_dtype = "f16"
-    pass
 
     # Check first_conversion as well
     if first_conversion is None:
         first_conversion = model_dtype
-    pass
 
     # Check I quants
     for quant_method in quantization_method: 
         if quant_method.startswith("iq2"):
             raise RuntimeError("Unsloth: Currently iq2 type quantizations aren't supported yet - sorry!")
-    pass
 
     # Careful convert.py is only for Llama / Mistral based archs
     use_fast_convert = False
@@ -992,26 +994,20 @@ def save_to_gguf(
         elif quant_method == "fast_quantized": quant_method = "q8_0"
         elif quant_method == "quantized":      quant_method = "q4_k_m"
         elif quant_method is None:             quant_method = "q8_0"
-
         # Check if wrong method
         if quant_method not in ALLOWED_QUANTS.keys():
             error = f"Unsloth: Quant method = [{quant_method}] not supported. Choose from below:\n"
             for key, value in ALLOWED_QUANTS.items():
                 error += f"[{key}] => {value}\n"
             raise RuntimeError(error)
-        pass
-
         new_quantization_method.append(quant_method)
-    pass
+
     quantization_method = new_quantization_method
 
-    print_info = \
-        f"==((====))==  Unsloth: Conversion from QLoRA to GGUF information\n"\
-        f"   \\\   /|    [0] Installing llama.cpp might take 3 minutes.\n"\
-        f"O^O/ \_/ \\    [1] Converting HF to GGUF 16bits might take 3 minutes.\n"\
-        f"\        /    [2] Converting GGUF 16bits to {quantization_method} might take 10 minutes each.\n"\
-        f' "-____-"     In total, you will have to wait at least 16 minutes.\n'
-    print(print_info)
+    print("""INFO: **Conversion from QLoRA to GGUF wait times**
+INFO: Install llama.cpp. Estimated wait time: 3m
+INFO: Convert HF to GGUF 16bits. Estimated wait time: 3m
+INFO: Convert GGUF 16bits to {}. Estimated wait timee: 10m / each""".format(quantization_method))
 
     # Check first_conversion format
     if   first_conversion == "f16"  : pass
@@ -1022,77 +1018,6 @@ def save_to_gguf(
         raise RuntimeError(
             f"Unsloth: `first_conversion` can only be one of ['f16', 'bf16', 'f32', 'q8_0'] and not `{first_conversion}`."
         )
-    pass
-
-    # Determine whether the system already has llama.cpp installed and the scripts are executable
-    # TODO fix these!!
-
-    llama_quantize_executable = get_executable(["llama-quantize"])
-    if llama_quantize_executable != "/home/dnck/dnck/heygirl/llama.cpp/build/bin/llama-quantize":
-        llama_quantize_executable = "/home/dnck/dnck/heygirl/llama.cpp/build/bin/llama-quantize"
-
-    convert_hf_to_gguf_py  = get_executable(["convert_hf_to_gguf.py"])
-    if convert_hf_to_gguf_py != "/home/dnck/dnck/heygirl/llama.cpp/convert_hf_to_gguf.py":
-        convert_hf_to_gguf_py = "/home/dnck/dnck/heygirl/llama.cpp/convert_hf_to_gguf.py"
-
-    error = 0
-    if llama_quantize_executable is not None and convert_hf_to_gguf_py is not None:
-        print("Unsloth: llama.cpp found in the system. We shall skip installation.")
-    else:
-        print("Unsloth: Installing llama.cpp. This might take 3 minutes...")
-        if _run_installer is not None:
-            _run_installer, IS_CMAKE = _run_installer
-
-            error = _run_installer.wait()
-            # Check if successful
-            if error != 0:
-                print(f"Unsloth: llama.cpp error code = {error}.")
-                install_llama_cpp_old(-10)
-            pass
-
-            if IS_CMAKE:
-                # CMAKE needs to do some extra steps
-                print("Unsloth: CMAKE detected. Finalizing some steps for installation.")
-
-                check = os.system("cp llama.cpp/build/bin/llama-* llama.cpp")
-                if check != 0: raise RuntimeError("Failed compiling llama.cpp. Please report this ASAP!")
-                check = os.system("rm -rf llama.cpp/build")
-                if check != 0: raise RuntimeError("Failed compiling llama.cpp. Please report this ASAP!")
-            pass
-        else:
-            error = 0
-            install_llama_cpp_blocking()
-        pass
-
-        # Careful llama.cpp/quantize changed to llama.cpp/llama-quantize
-        # and llama.cpp/main changed to llama.cpp/llama-cli
-        # See https://github.com/ggerganov/llama.cpp/pull/7809
-        llama_quantize_executable = None
-        if os.path.exists("llama.cpp/quantize"):
-            llama_quantize_executable = "llama.cpp/quantize"
-        elif os.path.exists("llama.cpp/llama-quantize"):
-            llama_quantize_executable = "llama.cpp/llama-quantize"
-        else:
-            raise RuntimeError(
-                "Unsloth: The file 'llama.cpp/llama-quantize' or 'llama.cpp/quantize' does not exist.\n"\
-                "But we expect this file to exist! Maybe the llama.cpp developers changed the name?"
-            )
-        pass
-
-        # See https://github.com/unslothai/unsloth/pull/730
-        # Filenames changed again!
-        convert_hf_to_gguf_py = None
-        if os.path.exists("llama.cpp/convert-hf-to-gguf.py"):
-            convert_hf_to_gguf_py = "llama.cpp/convert-hf-to-gguf.py"
-        elif os.path.exists("llama.cpp/convert_hf_to_gguf.py"):
-            convert_hf_to_gguf_py = "llama.cpp/convert_hf_to_gguf.py"
-        else:
-            raise RuntimeError(
-                "Unsloth: The file 'llama.cpp/convert-hf-to-gguf.py' or 'llama.cpp/convert_hf_to_gguf.py' does not exist.\n"\
-                "But we expect this file to exist! Maybe the llama.cpp developers changed the name?"
-            )
-        pass
-    pass
 
     # Determine maximum first_conversion state
     if   first_conversion == "f32"  : strength = 3
@@ -1133,13 +1058,10 @@ def save_to_gguf(
     # Non llama/mistral needs can only use f32 or f16
     if not use_fast_convert and \
         (first_conversion != "f16" or first_conversion != "bf16" or first_conversion != "f32"):
-
         pass
         # Latest llama.cpp works for all models for q8_0!
-
         # logger.warning_once("Unsloth: We must use f16 for non Llama and Mistral models.")
         # first_conversion = "f16"
-    pass
 
     # Check if bfloat16 is supported
     if first_conversion == "bf16" and not torch.cuda.is_bf16_supported():
@@ -1148,18 +1070,17 @@ def save_to_gguf(
             "We shall switch instead to f16."
         )
         first_conversion = "f16"
-    pass
 
     n_cpus = psutil.cpu_count()
     if n_cpus is None: n_cpus = 1
     n_cpus *= 2
     # Concurrency from https://rentry.org/llama-cpp-conversions#merging-loras-into-a-model
 
-    final_location = str((Path(model_directory) / f"unsloth.{first_conversion.upper()}.gguf").absolute())
+    model_name_gguf_filepath = str((Path(model_directory) / f"{model_name}_{first_conversion.upper()}.gguf").absolute())
     
-    print(f"Unsloth: [1] Converting model at {model_directory} into {first_conversion} GGUF format.\n"\
-          f"The output location will be {final_location}\n"\
-          "This might take 3 minutes...")
+    print(f"""INFO: Converting model {model_directory}/{first_conversion} to GGUF
+INFO: Expected output path: {model_name_gguf_filepath}
+INFO: Estimated wait time is 3m""")
 
     # We first check if tokenizer.model exists in the model_directory
     if os.path.exists(f"{model_directory}/tokenizer.model"):
@@ -1168,18 +1089,17 @@ def save_to_gguf(
         fix_sentencepiece_gguf(model_directory)
     else:
         vocab_type = "bpe"
-    pass
- 
-    command = f"{convert_hf_to_gguf_py} {model_directory} --outfile {final_location} --outtype {first_conversion}"
+
+    command = f"{convert_hf_to_gguf_py} {model_directory} --outfile {model_name_gguf_filepath} --outtype {first_conversion}"
 
     try_execute([command,], force_complete = True)
 
     # Check if quantization succeeded!
-    if not os.path.isfile(final_location):
+    if not os.path.isfile(model_name_gguf_filepath):
         if IS_KAGGLE_ENVIRONMENT:
-            if not Path(final_location).resolve().is_relative_to(Path('/tmp').resolve()):
+            if not Path(model_name_gguf_filepath).resolve().is_relative_to(Path('/tmp').resolve()):
                 raise RuntimeError(
-                    f"Unsloth: Quantization failed for {final_location}\n"\
+                    f"ERROR: Quantization failed for {model_name_gguf_filepath}\n"\
                     "You are in a Kaggle environment, which might be the reason this is failing.\n"\
                     "Kaggle only provides 20GB of disk space in the working directory.\n"\
                     "Merging to 16bit for 7b models use 16GB of space.\n"\
@@ -1189,39 +1109,32 @@ def save_to_gguf(
                     "I suggest you to save the 16bit model first, then use manual llama.cpp conversion."
                 )
         else:
-            raise RuntimeError(
-                f"Unsloth: Quantization failed for {final_location}\n"\
-                "You might have to compile llama.cpp yourself, then run this again.\n"\
-                "You do not need to close this Python program. Run the following commands in a new terminal:\n"\
-                "You must run this in the same folder as you're saving your model.\n"\
-                "git clone --recursive https://github.com/ggerganov/llama.cpp\n"\
-                "cd llama.cpp && make clean && make all -j\n"\
-                "Once that's done, redo the quantization."
-            )
-        pass
-    pass
-    print(f"Unsloth: Conversion completed! Output location: {final_location}")
+            raise RuntimeError(f"ERROR: Quantization failed for {model_name_gguf_filepath}")
 
-    full_precision_location = final_location
+
+    print(f"INFO: Conversion complete! Output location: {model_name_gguf_filepath}")
+
+    full_precision_location = model_name_gguf_filepath
 
     all_saved_locations = [full_precision_location,]
+
     # Convert each type!
     for quant_method in quantization_method:
         if quant_method != first_conversion:
-            print(f"Unsloth: [2] Converting GGUF 16bit into {quant_method}. This might take 20 minutes...")
-            final_location = str((Path(model_directory) / f"unsloth.{quant_method.upper()}.gguf").absolute())
+            print(f"INFO: Converting GGUF 16bit to {quant_method}. Expected wait time > 20m")
 
-            command = f"{llama_quantize_executable} {full_precision_location} "\
-                f"{final_location} {quant_method} {n_cpus}"
+            model_name_gguf_filepath = str((Path(model_directory) / f"{model_name}_{quant_method.upper()}.gguf").absolute())
+
+            command = f"{llama_quantize_executable} {full_precision_location} {model_name_gguf_filepath} {quant_method} {n_cpus}"
             
             try_execute([command,], force_complete = True)
 
             # Check if quantization succeeded!
-            if not os.path.isfile(final_location):
+            if not os.path.isfile(model_name_gguf_filepath):
                 if IS_KAGGLE_ENVIRONMENT:
-                    if not Path(final_location).resolve().is_relative_to(Path('/tmp').resolve()):
+                    if not Path(model_name_gguf_filepath).resolve().is_relative_to(Path('/tmp').resolve()):
                         raise RuntimeError(
-                            f"Unsloth: Quantization failed for {final_location}\n"\
+                            f"ERROR: Quantization failed for {model_name_gguf_filepath}\n"\
                             "You are in a Kaggle environment, which might be the reason this is failing.\n"\
                             "Kaggle only provides 20GB of disk space in the working directory.\n"\
                             "Merging to 16bit for 7b models use 16GB of space.\n"\
@@ -1231,28 +1144,16 @@ def save_to_gguf(
                             "I suggest you to save the 16bit model first, then use manual llama.cpp conversion."
                         )
                 else:
-                    raise RuntimeError(
-                        "Unsloth: Quantization failed! You might have to compile llama.cpp yourself, then run this again.\n"\
-                        "You do not need to close this Python program. Run the following commands in a new terminal:\n"\
-                        "You must run this in the same folder as you're saving your model.\n"\
-                        "git clone --recursive https://github.com/ggerganov/llama.cpp\n"\
-                        "cd llama.cpp && make clean && make all -j\n"\
-                        "Once that's done, redo the quantization."
-                    )
-                pass
-            pass
+                    raise RuntimeError(f"ERROR: Quantization failed for {model_name_gguf_filepath}")
+    
+            print(f"Unsloth: Conversion complete! Output location: {model_name_gguf_filepath}")
 
-            print(f"Unsloth: Conversion completed! Output location: {final_location}")
-            all_saved_locations.append(final_location)
-        pass
-    pass
+            all_saved_locations.append(model_name_gguf_filepath)
 
     # Finally check if first_conversion (f16, bf16 etc) was in the list of actual quant methods
     full_precision_seen = first_conversion in frozenset(quantization_method)
 
     return all_saved_locations, full_precision_seen
-pass
-
 
 def unsloth_save_pretrained_merged(
     self,
@@ -1599,6 +1500,7 @@ pass
 
 def unsloth_save_pretrained_gguf(
     self,
+    model_name           : str,
     save_directory       : Union[str, os.PathLike],
     tokenizer            = None,
     quantization_method  : str = "fast_quantized",
@@ -1616,6 +1518,8 @@ def unsloth_save_pretrained_gguf(
     tags                 : List[str] = None,
     temporary_location   : str = "_unsloth_temporary_saved_buffers",
     maximum_memory_usage : float = 0.85,
+    llama_quantize_executable: str = None,
+    convert_hf_to_gguf_py: str = None
 ):
     """
         Same as .save_pretrained(...) except 4bit weights are auto
@@ -1664,46 +1568,48 @@ def unsloth_save_pretrained_gguf(
     fix_bos_token, old_chat_template = fix_tokenizer_bos_token(tokenizer)
 
     # Non blocking install GGUF first
-    if not os.path.exists("llama.cpp"):
+    # if not os.path.exists("llama.cpp"):
 
-        if IS_KAGGLE_ENVIRONMENT:
-            # Kaggle is weird - no blocking installs, and no CUDA?
-            python_install = install_python_non_blocking(["gguf", "protobuf"])
-            python_install.wait()
-            install_llama_cpp_blocking(use_cuda = False)
-            new_save_directory, old_username = unsloth_save_model(**arguments)
-            makefile = None
-        else:
-            git_clone = install_llama_cpp_clone_non_blocking()
-            python_install = install_python_non_blocking(["gguf", "protobuf"])
-            git_clone.wait()
-            makefile = install_llama_cpp_make_non_blocking()
-            new_save_directory, old_username = unsloth_save_model(**arguments)
-            python_install.wait()
-        pass
-    else:
-        try:
-            new_save_directory, old_username = unsloth_save_model(**arguments)
-            makefile = None
-        except:
-            # Retry by recloning llama.cpp
-            if IS_KAGGLE_ENVIRONMENT:
-                # Kaggle is weird - no blocking installs, and no CUDA?
-                python_install = install_python_non_blocking(["gguf", "protobuf"])
-                python_install.wait()
-                install_llama_cpp_blocking(use_cuda = False)
-                new_save_directory, old_username = unsloth_save_model(**arguments)
-                makefile = None
-            else:
-                git_clone = install_llama_cpp_clone_non_blocking()
-                python_install = install_python_non_blocking(["gguf", "protobuf"])
-                git_clone.wait()
-                makefile = install_llama_cpp_make_non_blocking()
-                new_save_directory, old_username = unsloth_save_model(**arguments)
-                python_install.wait()
-            pass
-        pass
-    pass
+    #     if IS_KAGGLE_ENVIRONMENT:
+    #         # Kaggle is weird - no blocking installs, and no CUDA?
+    #         python_install = install_python_non_blocking(["gguf", "protobuf"])
+    #         python_install.wait()
+    #         install_llama_cpp_blocking(use_cuda = False)
+    #         new_save_directory, old_username = unsloth_save_model(**arguments)
+    #         makefile = None
+    #     else:
+    #         git_clone = install_llama_cpp_clone_non_blocking()
+    #         python_install = install_python_non_blocking(["gguf", "protobuf"])
+    #         git_clone.wait()
+    #         makefile = install_llama_cpp_make_non_blocking()
+    #         new_save_directory, old_username = unsloth_save_model(**arguments)
+    #         python_install.wait()
+    #     pass
+    # else:
+
+    # dnck: since I'm passing in the path to the required executables, we can skip the llama.cpp stuff.
+    try:
+        new_save_directory, old_username = unsloth_save_model(**arguments)
+        makefile = None
+    except:
+        # # Retry by recloning llama.cpp
+        # if IS_KAGGLE_ENVIRONMENT:
+        #     # Kaggle is weird - no blocking installs, and no CUDA?
+        #     python_install = install_python_non_blocking(["gguf", "protobuf"])
+        #     python_install.wait()
+        #     install_llama_cpp_blocking(use_cuda = False)
+        #     new_save_directory, old_username = unsloth_save_model(**arguments)
+        #     makefile = None
+        # else:
+        #     git_clone = install_llama_cpp_clone_non_blocking()
+        #     python_install = install_python_non_blocking(["gguf", "protobuf"])
+        #     git_clone.wait()
+        #     makefile = install_llama_cpp_make_non_blocking()
+        #     new_save_directory, old_username = unsloth_save_model(**arguments)
+        #     python_install.wait()
+        print("ERROR: failed to save model!")
+        return 
+
 
     # Use old chat template if the bos is removed
     if fix_bos_token:
@@ -1728,16 +1634,24 @@ def unsloth_save_pretrained_gguf(
     is_sentencepiece_model = check_if_sentencepiece_model(self)
 
     # Save to GGUF
+
     all_file_locations, want_full_precision = save_to_gguf(
-        model_type, model_dtype, is_sentencepiece_model, 
-        new_save_directory, quantization_method, first_conversion, makefile,
+        model_name,
+        model_type, 
+        model_dtype, 
+        is_sentencepiece_model, 
+        new_save_directory, 
+        quantization_method, 
+        first_conversion, 
+        llama_quantize_executable,
+        convert_hf_to_gguf_py
     )
 
     # Save Ollama modelfile
     modelfile = create_ollama_modelfile(tokenizer, all_file_locations[0])
     modelfile_location = None
     if modelfile is not None:
-        modelfile_location = os.path.join(new_save_directory, "Modelfile")
+        modelfile_location = os.path.join(new_save_directory, "{model_name}.modelfile")
         with open(modelfile_location, "w") as file:
             file.write(modelfile)
         pass
@@ -1842,46 +1756,47 @@ def unsloth_push_to_hub_gguf(
     fix_bos_token, old_chat_template = fix_tokenizer_bos_token(tokenizer)
 
     # Non blocking install GGUF first
-    if not os.path.exists("llama.cpp"):
+    # if not os.path.exists("llama.cpp"):
 
-        if IS_KAGGLE_ENVIRONMENT:
-            # Kaggle is weird - no blocking installs, and no CUDA?
-            python_install = install_python_non_blocking(["gguf", "protobuf"])
-            python_install.wait()
-            install_llama_cpp_blocking(use_cuda = False)
-            new_save_directory, old_username = unsloth_save_model(**arguments)
-            makefile = None
-        else:
-            git_clone = install_llama_cpp_clone_non_blocking()
-            python_install = install_python_non_blocking(["gguf", "protobuf"])
-            git_clone.wait()
-            makefile = install_llama_cpp_make_non_blocking()
-            new_save_directory, old_username = unsloth_save_model(**arguments)
-            python_install.wait()
-        pass
-    else:
-        try:
-            new_save_directory, old_username = unsloth_save_model(**arguments)
-            makefile = None
-        except:
-            # Retry by recloning llama.cpp
-            if IS_KAGGLE_ENVIRONMENT:
-                # Kaggle is weird - no blocking installs, and no CUDA?
-                python_install = install_python_non_blocking(["gguf", "protobuf"])
-                python_install.wait()
-                install_llama_cpp_blocking(use_cuda = False)
-                new_save_directory, old_username = unsloth_save_model(**arguments)
-                makefile = None
-            else:
-                git_clone = install_llama_cpp_clone_non_blocking()
-                python_install = install_python_non_blocking(["gguf", "protobuf"])
-                git_clone.wait()
-                makefile = install_llama_cpp_make_non_blocking()
-                new_save_directory, old_username = unsloth_save_model(**arguments)
-                python_install.wait()
-            pass
-        pass
-    pass
+    #     if IS_KAGGLE_ENVIRONMENT:
+    #         # Kaggle is weird - no blocking installs, and no CUDA?
+    #         python_install = install_python_non_blocking(["gguf", "protobuf"])
+    #         python_install.wait()
+    #         install_llama_cpp_blocking(use_cuda = False)
+    #         new_save_directory, old_username = unsloth_save_model(**arguments)
+    #         makefile = None
+    #     else:
+    #         git_clone = install_llama_cpp_clone_non_blocking()
+    #         python_install = install_python_non_blocking(["gguf", "protobuf"])
+    #         git_clone.wait()
+    #         makefile = install_llama_cpp_make_non_blocking()
+    #         new_save_directory, old_username = unsloth_save_model(**arguments)
+    #         python_install.wait()
+    #     pass
+    # else:
+    
+    try:
+        new_save_directory, old_username = unsloth_save_model(**arguments)
+        makefile = None
+    except:
+        # # Retry by recloning llama.cpp
+        # if IS_KAGGLE_ENVIRONMENT:
+        #     # Kaggle is weird - no blocking installs, and no CUDA?
+        #     python_install = install_python_non_blocking(["gguf", "protobuf"])
+        #     python_install.wait()
+        #     install_llama_cpp_blocking(use_cuda = False)
+        #     new_save_directory, old_username = unsloth_save_model(**arguments)
+        #     makefile = None
+        # else:
+        #     git_clone = install_llama_cpp_clone_non_blocking()
+        #     python_install = install_python_non_blocking(["gguf", "protobuf"])
+        #     git_clone.wait()
+        #     makefile = install_llama_cpp_make_non_blocking()
+        #     new_save_directory, old_username = unsloth_save_model(**arguments)
+        #     python_install.wait()
+        # pass
+        print("ERROR: failed to save model!")
+        return 
 
     # Use old chat template if the bos is removed
     if fix_bos_token:
@@ -1906,9 +1821,19 @@ def unsloth_push_to_hub_gguf(
     is_sentencepiece_model = check_if_sentencepiece_model(self)
 
     # Save to GGUF
+    model_name = ""
+    llama_quantize_executable = ""
+    convert_hf_to_gguf_py = ""
     all_file_locations, want_full_precision = save_to_gguf(
-        model_type, model_dtype, is_sentencepiece_model, 
-        new_save_directory, quantization_method, first_conversion, makefile,
+        model_name,
+        model_type, 
+        model_dtype, 
+        is_sentencepiece_model, 
+        new_save_directory, 
+        quantization_method, 
+        first_conversion, 
+        llama_quantize_executable,
+        convert_hf_to_gguf_py
     )
 
     # Save Ollama modelfile
