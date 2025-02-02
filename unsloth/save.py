@@ -127,11 +127,11 @@ def check_if_sentencepiece_model(
     if not os.path.exists(file_location):
         created_folder = True
         os.makedirs(file_location)
-    pass
+
     temp_tokenizer.save_pretrained(file_location)
     if os.path.isfile(f"{file_location}/tokenizer.model"):
         sentencepiece_model = True
-    pass
+
     if created_folder:
         shutil.rmtree(file_location, ignore_errors=True)
     return sentencepiece_model
@@ -399,6 +399,14 @@ def unsloth_save_model(
         "token": save_pretrained_settings["token"],
     }
 
+    print("**save_pretrained_settings**")
+    for key, value in save_pretrained_settings.items():
+        print(f"- {key}: {value}")
+
+    print("**tokenizer_save_settings**")
+    for key, value in tokenizer_save_settings.items():
+        print(f"- {key}: {value}")
+
     # Check if PEFT Model or not - if yes, 3 levels. If not 2 levels.
     from peft import PeftModelForCausalLM
 
@@ -577,6 +585,7 @@ def unsloth_save_model(
         temporary_location = os.path.join(KAGGLE_TMP, temporary_location)
 
     # Max directory for disk saving
+    print(f"Making temporary_location {temporary_location}")
     if not os.path.exists(temporary_location):
         os.makedirs(temporary_location)
 
@@ -748,6 +757,10 @@ def unsloth_save_model(
     # Save tokenizer
     if tokenizer is not None:
         print("Unsloth: Saving tokenizer...", end="")
+        print("**tokenizer_save_settings**")
+        for key, value in tokenizer_save_settings.items():
+            print(f"- {key}: {value}")
+
         # Set padding side to left for inference
         old_padding_side = tokenizer.padding_side
         tokenizer.padding_side = "left"
@@ -830,6 +843,7 @@ def unsloth_save_model(
     # Remove temporary location
     import shutil
 
+    print(f"Removing temporary location {temporary_location}")
     shutil.rmtree(temporary_location, ignore_errors=True)
 
     for _ in range(3):
