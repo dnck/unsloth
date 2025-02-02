@@ -1785,9 +1785,21 @@ def unsloth_save_pretrained_gguf(
 
     # dnck: since I'm passing in the path to the required executables, we can skip the llama.cpp stuff.
     try:
+        model_name = arguments["model_name"]
+        llama_quantize_executable = arguments["llama_quantize_executable"]
+        convert_hf_to_gguf_py = arguments["convert_hf_to_gguf_py"]
+        del arguments["model_name"]
+        del arguments["llama_quantize_executable"]
+        del arguments["convert_hf_to_gguf_py"]
+
+        print("unsloth_save_model using expanded arguments:")
+        for key, value in arguments.items():
+            if key not in ["model", "tokenizer"]:
+                print(f"- {key}: {value}")
+
         new_save_directory, old_username = unsloth_save_model(**arguments)
         makefile = None
-    except:
+    except BaseException as err:
         # # Retry by recloning llama.cpp
         # if IS_KAGGLE_ENVIRONMENT:
         #     # Kaggle is weird - no blocking installs, and no CUDA?
@@ -1803,7 +1815,7 @@ def unsloth_save_pretrained_gguf(
         #     makefile = install_llama_cpp_make_non_blocking()
         #     new_save_directory, old_username = unsloth_save_model(**arguments)
         #     python_install.wait()
-        print("ERROR: failed to save model!")
+        print(f"ERROR: failed to save model! {err}")
         return
 
     # Use old chat template if the bos is removed
@@ -1844,7 +1856,7 @@ def unsloth_save_pretrained_gguf(
     modelfile = create_ollama_modelfile(tokenizer, all_file_locations[0])
     modelfile_location = None
     if modelfile is not None:
-        modelfile_location = os.path.join(new_save_directory, "{model_name}.modelfile")
+        modelfile_location = os.path.join(new_save_directory, f"{model_name}.modelfile")
         with open(modelfile_location, "w") as file:
             file.write(modelfile)
         print(f"Unsloth: Saved Ollama Modelfile to {modelfile_location}")
